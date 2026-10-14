@@ -16,22 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
 
-@api_view(["GET"])
-def ping(request):
-    return Response({"status": "ok"})
 
-@api_view(["GET"])
-def version(request):
-    return Response({"version": "0.1"})
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/v1/ping/', ping),
-    path('api/v1/version/', version),
-    path('api-auth/', include("rest_framework.urls"))
+    path('api-auth/', include("rest_framework.urls")),
+    path('api/v1/', include('listings.urls'))
 ]
 
 
