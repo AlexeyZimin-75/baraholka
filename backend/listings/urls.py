@@ -1,9 +1,9 @@
 from django.urls import path
 
-from .views import category_list, category_detail
+from .views import  CategoryDetail, CategoryList
 
 
 urlpatterns = [
-    path('categories/', category_list, name="category-list"),
-    path('categories/<int:id>/', category_detail, name="category-detail")
+    path('categories/', CategoryList.as_view(), name="category-list"),
+    path('categories/<int:id>/', CategoryDetail.as_view(), name="category-detail")
 ]
