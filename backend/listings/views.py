@@ -3,6 +3,9 @@ from rest_framework.decorators import api_view
 from rest_framework import status
 from .models import Category
 from django.shortcuts import get_object_or_404
+from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
+from django.db.models import Q
 
 def category_to_dict(category):
     return {"id": category.id, "name": category.name, "slug": category.slug}
@@ -34,42 +37,57 @@ def validate_category(data, instance=None, partial=False):
         cleaned[field] = value
     return cleaned, errors
 
-@api_view(["GET", "PUT", "PATCH", "DELETE"])
-def category_detail(request, id):
-    category = get_object_or_404(Category, id=id)
-    if request.method == "GET":
+class CategoryDetail(APIView):
+    def get_object(self, id):
+        return get_object_or_404(Category, id=id)
+
+    def get(self, request, id):
+        return Response(category_to_dict(self.get_object(id)))
+
+    def put(self, request, id):
+        return self.update(request, id, partial=False)
+
+    def patch(self, request, id):
+        return self.update(request, id, partial=True)
+
+    def update(self, request, id, partial):
+        category = self.get_object(id)
+        cleaned, errors = validate_category(request.data, instance=category, partial=partial)
+        if errors:
+            raise ValidationError(errors)
+        for field, value in cleaned.items():
+            setattr(category, field, value)
+        category.save()
         return Response(category_to_dict(category))
 
-    if request.method == "DELETE":
+    def delete(self, request, id):
+        category = self.get_object(id)
         if category.listings.exists():
-            return Response({"detail": "в категории есть объявления"}, status=status.HTTP_409_CONFLICT)
+            return Response({"detail": "В категории есть объявления"}, status=status.HTTP_409_CONFLICT)
         category.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    partial = request.method == "PATCH"
-    cleaned, errors = validate_category(request.data, instance=category, partial=partial)
-    if errors:
-        return Response(errors, status=status.HTTP_400_BAD_REQUEST)
-    for field, value in cleaned.items():
-        setattr(category, field, value)
-    category.save()
-    return Response(category_to_dict(category))
 
-
-@api_view(["GET", "POST"])
-def category_list(request):
-    if request.method == "GET":
+class CategoryList(APIView):
+    def get_queryset(self):
         categories = Category.objects.all()
-        search = request.query_params.get("search", "").strip()
+        search = self.request.query_params.get("search", "").strip()
         if search:
-            categories = categories.filter(name__icontains=search)
-        return Response([category_to_dict(category) for category in categories])
+            categories = categories.filter(
+                Q(name__icontains=search) | Q(slug__icontains=search)
+            )
+        return categories
 
-    cleaned, errors = validate_category(request.data)
-    if errors:
-        return Response(errors, status=status.HTTP_400_BAD_REQUEST)
-    new_category = Category.objects.create(**cleaned)
-    return Response(category_to_dict(new_category), status=status.HTTP_201_CREATED)
+    def get(self, request):
+        return Response([category_to_dict(category) for category in self.get_queryset()])
+
+    def post(self, request):
+        cleaned, errors = validate_category(request.data)
+        if errors:
+            raise ValidationError(errors)
+        category = Category.objects.create(**cleaned)
+        return Response(category_to_dict(category), status=status.HTTP_201_CREATED)
+
 
 
 
