@@ -1,64 +1,60 @@
 from rest_framework.response import Response
-from rest_framework.decorators import api_view
 from rest_framework import status
-from .models import Category
+from .models import Category, Listing
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.exceptions import ValidationError
-from django.db.models import Q
+from .serializers import CategorySerializer
 
-def category_to_dict(category):
-    return {"id": category.id, "name": category.name, "slug": category.slug}
-
-
-
-def validate_category(data, instance=None, partial=False):
-    cleaned, errors = {}, {}
-    for field in ("name", "slug"):
-        if field not in data:
-            if not partial:
-                errors[field] = ["обязательное поле"]
-            continue
-        value = str(data[field]).strip()
-        if not value:
-            errors[field] = ["поле не может быть пустым"]
-            continue
-        if len(value) > Category._meta.get_field(field).max_length:
-            errors[field] = ["значение поля слишком большое"]
-            continue
-
-        taken = Category.objects.filter(**{field: value})
-        if instance is not None:
-            taken = taken.exclude(id=instance.id)
-        if taken.exists():
-            errors[field] = ["поле уже занято"]
-            continue
-
-        cleaned[field] = value
-    return cleaned, errors
+# class CategoryDetail(APIView):
+#     def get_object(self, id):
+#         return get_object_or_404(Category, id=id)
+#
+#     def get(self, request, id):
+#         return Response(category_to_dict(self.get_object(id)))
+#
+#     def put(self, request, id):
+#         return self.update(request, id, partial=False)
+#
+#     def patch(self, request, id):
+#         return self.update(request, id, partial=True)
+#
+#     def update(self, request, id, partial):
+#         category = self.get_object(id)
+#         cleaned, errors = validate_category(request.data, instance=category, partial=partial)
+#         if errors:
+#             raise ValidationError(errors)
+#         for field, value in cleaned.items():
+#             setattr(category, field, value)
+#         category.save()
+#         return Response(category_to_dict(category))
+#
+#     def delete(self, request, id):
+#         category = self.get_object(id)
+#         if category.listings.exists():
+#             return Response({"detail": "В категории есть объявления"}, status=status.HTTP_409_CONFLICT)
+#         category.delete()
+#         return Response(status=status.HTTP_204_NO_CONTENT)
 
 class CategoryDetail(APIView):
     def get_object(self, id):
         return get_object_or_404(Category, id=id)
 
-    def get(self, request, id):
-        return Response(category_to_dict(self.get_object(id)))
 
-    def put(self, request, id):
-        return self.update(request, id, partial=False)
+    def get(self, request, id):
+        return Response(CategorySerializer(self.get_object(id)).data)
 
     def patch(self, request, id):
         return self.update(request, id, partial=True)
 
+    def put(self, request, id):
+        return self.update(request, id, partial=False)
+
     def update(self, request, id, partial):
-        category = self.get_object(id)
-        cleaned, errors = validate_category(request.data, instance=category, partial=partial)
-        if errors:
-            raise ValidationError(errors)
-        for field, value in cleaned.items():
-            setattr(category, field, value)
-        category.save()
-        return Response(category_to_dict(category))
+        serializer = CategorySerializer(self.get_object(id), data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
     def delete(self, request, id):
         category = self.get_object(id)
@@ -68,28 +64,47 @@ class CategoryDetail(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+
 class CategoryList(APIView):
     def get_queryset(self):
         categories = Category.objects.all()
         search = self.request.query_params.get("search", "").strip()
         if search:
-            categories = categories.filter(
-                Q(name__icontains=search) | Q(slug__icontains=search)
-            )
+            categories = categories.filter(name__icontains=search)
         return categories
 
+
     def get(self, request):
-        return Response([category_to_dict(category) for category in self.get_queryset()])
+        serializer = CategorySerializer(self.get_queryset(), many=True)
+        return Response(serializer.data)
 
     def post(self, request):
-        cleaned, errors = validate_category(request.data)
-        if errors:
-            raise ValidationError(errors)
-        category = Category.objects.create(**cleaned)
-        return Response(category_to_dict(category), status=status.HTTP_201_CREATED)
+        serializer = CategorySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+def listing_to_dict(listing):
+    return {
+        "id": listing.id, "title": listing.title,
+        "price": str(listing.price), "city": listing.city,
+         "status": listing.status,
+        "seller": listing.seller.id,
+        "created_at": listing.created_at.isoformat()}
 
 
 
+class CategoryListings(APIView):
+    def get_queryset(self):
+        category = get_object_or_404(Category, id=self.kwargs['id'])
+        listings = Listing.objects.filter(category=category)
+        listing_status = self.request.query_params.get("status", "").strip()
+        if listing_status in Listing.Status.values:
+            listings = listings.filter(status=listing_status).order_by('status')
+        elif listing_status and listing_status not in Listing.Status.values:
+            raise ValidationError({"detail": "неизвестный статус объявления"})
+        return listings
 
-
+    def get(self, request, id):
+        return Response([listing_to_dict(listing) for listing in self.get_queryset()])
 
