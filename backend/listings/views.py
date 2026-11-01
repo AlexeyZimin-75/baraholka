@@ -4,37 +4,7 @@ from .models import Category, Listing
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.exceptions import ValidationError
-from .serializers import CategorySerializer
-
-# class CategoryDetail(APIView):
-#     def get_object(self, id):
-#         return get_object_or_404(Category, id=id)
-#
-#     def get(self, request, id):
-#         return Response(category_to_dict(self.get_object(id)))
-#
-#     def put(self, request, id):
-#         return self.update(request, id, partial=False)
-#
-#     def patch(self, request, id):
-#         return self.update(request, id, partial=True)
-#
-#     def update(self, request, id, partial):
-#         category = self.get_object(id)
-#         cleaned, errors = validate_category(request.data, instance=category, partial=partial)
-#         if errors:
-#             raise ValidationError(errors)
-#         for field, value in cleaned.items():
-#             setattr(category, field, value)
-#         category.save()
-#         return Response(category_to_dict(category))
-#
-#     def delete(self, request, id):
-#         category = self.get_object(id)
-#         if category.listings.exists():
-#             return Response({"detail": "В категории есть объявления"}, status=status.HTTP_409_CONFLICT)
-#         category.delete()
-#         return Response(status=status.HTTP_204_NO_CONTENT)
+from .serializers import CategorySerializer, ListingSerializer
 
 class CategoryDetail(APIView):
     def get_object(self, id):
@@ -84,13 +54,7 @@ class CategoryList(APIView):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-def listing_to_dict(listing):
-    return {
-        "id": listing.id, "title": listing.title,
-        "price": str(listing.price), "city": listing.city,
-         "status": listing.status,
-        "seller": listing.seller.id,
-        "created_at": listing.created_at.isoformat()}
+
 
 
 
@@ -100,11 +64,12 @@ class CategoryListings(APIView):
         listings = Listing.objects.filter(category=category)
         listing_status = self.request.query_params.get("status", "").strip()
         if listing_status in Listing.Status.values:
-            listings = listings.filter(status=listing_status).order_by('status')
+            listings = listings.filter(status=listing_status)
         elif listing_status and listing_status not in Listing.Status.values:
-            raise ValidationError({"detail": "неизвестный статус объявления"})
+            raise ValidationError({"status": ["неизвестный статус объявления"]})
         return listings
 
     def get(self, request, id):
-        return Response([listing_to_dict(listing) for listing in self.get_queryset()])
+        serializer = ListingSerializer(self.get_queryset(), many=True)
+        return Response(serializer.data)
 
