@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from .models import Category, Listing
+from .validators import no_links
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -14,17 +15,8 @@ class CategorySerializer(serializers.ModelSerializer):
 
         }
 
-"""
-    title = models.CharField(max_length=120)
-    description = models.TextField(blank=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    category = models.ForeignKey(Category, on_delete=models.PROTECT,  related_name="listings")
-    seller = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="listings")
-    city = models.CharField(max_length=100)
-    status = models.CharField(max_length=30, choices=Status.choices, default=Status.ACTIVE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-"""
+    def validate_slug(self, slug):
+        return slug.lower()
 
 class ListingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -34,3 +26,25 @@ class ListingSerializer(serializers.ModelSerializer):
                 "city", "status", "seller", "created_at", "updated_at"]
 
         read_only_fields = ["seller", "created_at", "updated_at"]
+
+        extra_kwargs = {
+            "title": {"validators": [no_links]},
+            "description": {"validators": [no_links]}
+        }
+
+    def validate_price(self, price):
+        if price <= 0:
+            raise serializers.ValidationError("Цена должна быть больше нуля!")
+        return price
+
+    def validate(self, attrs):
+        status = attrs.get("status", getattr(self.instance, "status", Listing.Status.ACTIVE))
+        description = attrs.get("description", getattr(self.instance, "description", ""))
+        if status == Listing.Status.ACTIVE and len(description.strip()) < 20:
+            raise serializers.ValidationError({'description': 'Если объявление активно, описание должно быть не меньше 20 символов'})
+        return attrs
+
+
+
+
+
