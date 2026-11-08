@@ -5,11 +5,16 @@ from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.exceptions import ValidationError
 from .serializers import CategorySerializer, ListingSerializer
+from django.db.models import Count, Q
+
+def categories_with_counts():
+    return Category.objects.annotate(
+        active_listings = Count("listings", filter=Q(listings__status=Listing.Status.ACTIVE))
+    )
 
 class CategoryDetail(APIView):
     def get_object(self, id):
-        return get_object_or_404(Category, id=id)
-
+        return get_object_or_404(categories_with_counts(), id=id)
 
     def get(self, request, id):
         return Response(CategorySerializer(self.get_object(id)).data)
@@ -35,9 +40,11 @@ class CategoryDetail(APIView):
 
 
 
+
 class CategoryList(APIView):
     def get_queryset(self):
-        categories = Category.objects.all()
+
+        categories = categories_with_counts()
         search = self.request.query_params.get("search", "").strip()
         if search:
             categories = categories.filter(name__icontains=search)
@@ -60,8 +67,9 @@ class CategoryList(APIView):
 
 class CategoryListings(APIView):
     def get_queryset(self):
+
         category = get_object_or_404(Category, id=self.kwargs['id'])
-        listings = Listing.objects.filter(category=category)
+        listings = category.listings.select_related("category", "seller")
         listing_status = self.request.query_params.get("status", "").strip()
         if listing_status in Listing.Status.values:
             listings = listings.filter(status=listing_status)
@@ -72,4 +80,6 @@ class CategoryListings(APIView):
     def get(self, request, id):
         serializer = ListingSerializer(self.get_queryset(), many=True)
         return Response(serializer.data)
+
+
 

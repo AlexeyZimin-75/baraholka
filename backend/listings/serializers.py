@@ -5,9 +5,10 @@ from .validators import no_links
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    active_listings = serializers.IntegerField(read_only=True)
     class Meta:
         model = Category
-        fields = ["id", "name", "slug"]
+        fields = ["id", "name", "slug", "active_listings"]
         extra_kwargs = {
             "name": {"validators": [UniqueValidator(queryset=Category.objects.all(), lookup="iexact")]},
             "slug": {"help_text": "Латиница, цифры и дефисы",
@@ -19,13 +20,23 @@ class CategorySerializer(serializers.ModelSerializer):
         return slug.lower()
 
 class ListingSerializer(serializers.ModelSerializer):
+    seller = serializers.SlugRelatedField(slug_field="username", read_only=True)
+    category = CategorySerializer(read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        source="category",
+        write_only=True
+    )
+
     class Meta:
         model = Listing
+
         fields = [
-            "id", "title", "description", "price", "category",
+            "id", "title", "description", "price", "category", "category_id",
                 "city", "status", "seller", "created_at", "updated_at"]
 
-        read_only_fields = ["seller", "created_at", "updated_at"]
+        read_only_fields = ["created_at", "updated_at"]
+
 
         extra_kwargs = {
             "title": {"validators": [no_links]},
