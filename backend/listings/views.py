@@ -4,8 +4,9 @@ from .models import Category, Listing
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.exceptions import ValidationError
-from .serializers import CategorySerializer, ListingSerializer
+from .serializers import CategorySerializer, ListingCardSerializer, ListingWriteSerializer, ListingSerializer
 from django.db.models import Count, Q
+from rest_framework.permissions import IsAuthenticated
 
 def categories_with_counts():
     return Category.objects.annotate(
@@ -78,8 +79,16 @@ class CategoryListings(APIView):
         return listings
 
     def get(self, request, id):
-        serializer = ListingSerializer(self.get_queryset(), many=True)
+        serializer = ListingCardSerializer(self.get_queryset(), many=True, context={"request": request})
         return Response(serializer.data)
 
+class ListingCreate(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ListingWriteSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        listing = serializer.save()
+        return Response(ListingSerializer(listing).data, status=status.HTTP_201_CREATED)
 
 

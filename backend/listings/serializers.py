@@ -2,6 +2,8 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from .models import Category, Listing
 from .validators import no_links
+from django.utils import timezone
+from datetime import timedelta
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -22,21 +24,41 @@ class CategorySerializer(serializers.ModelSerializer):
 class ListingSerializer(serializers.ModelSerializer):
     seller = serializers.SlugRelatedField(slug_field="username", read_only=True)
     category = CategorySerializer(read_only=True)
-    category_id = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.all(),
-        source="category",
-        write_only=True
-    )
 
     class Meta:
         model = Listing
-
         fields = [
-            "id", "title", "description", "price", "category", "category_id",
-                "city", "status", "seller", "created_at", "updated_at"]
+            "id", "title", "description", "price", "category",
+            "city", "status", "seller", "created_at", "updated_at",
+        ]
 
-        read_only_fields = ["created_at", "updated_at"]
+class ListingCardSerializer(serializers.ModelSerializer):
+    is_mine = serializers.SerializerMethodField()
+    is_new = serializers.SerializerMethodField()
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    seller_name = serializers.CharField(source='seller.username', read_only=True)
 
+    class Meta:
+        model = Listing
+        fields = ['id', 'title', 'price', 'city', 'status',
+                  'category_name', 'seller_name', 'is_new', 'is_mine']
+
+    def get_is_new(self, obj):
+        return obj.created_at >= timezone.now() - timedelta(days=3)
+
+    def get_is_mine(self, obj):
+        request = self.context.get("request")
+        return bool(request) and obj.seller_id == request.user.id
+
+
+class ListingWriteSerializer(serializers.ModelSerializer):
+
+    seller = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    class Meta:
+        model = Listing
+        fields = [
+            'title', 'description', 'price', 'category', 'city', 'status', 'seller'
+        ]
 
         extra_kwargs = {
             "title": {"validators": [no_links]},
@@ -54,6 +76,14 @@ class ListingSerializer(serializers.ModelSerializer):
         if status == Listing.Status.ACTIVE and len(description.strip()) < 20:
             raise serializers.ValidationError({'description': 'Если объявление активно, описание должно быть не меньше 20 символов'})
         return attrs
+
+
+
+
+
+
+
+
 
 
 
