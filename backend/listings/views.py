@@ -1,76 +1,90 @@
+from typing import Any
+
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Category, Listing
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied, APIException
 from .serializers import CategorySerializer, ListingCardSerializer, ListingWriteSerializer, ListingSerializer
 from django.db.models import Count, Q
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import permissions, generics
+from rest_framework.mixins import *
+
+class CategoryNotEmpty(APIException):
+    status_code = 409
+    default_detail = "Нельзя удалять категорию, в которой есть объявления"
+
+
+class IsSeller(permissions.BasePermission):
+    message = "Можно менять только свои объявления."
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+
+
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        if request.user.id == obj.seller_id:
+            return True
+
+        raise PermissionDenied(detail=self.message)
 
 def categories_with_counts():
     return Category.objects.annotate(
         active_listings = Count("listings", filter=Q(listings__status=Listing.Status.ACTIVE))
     )
 
-class CategoryDetail(APIView):
-    def get_object(self, id):
-        return get_object_or_404(categories_with_counts(), id=id)
 
-    def get(self, request, id):
-        return Response(CategorySerializer(self.get_object(id)).data)
+class CategoryDetail(RetrieveModelMixin, UpdateModelMixin, DestroyModelMixin, generics.GenericAPIView):
+    serializer_class = CategorySerializer
+    queryset = categories_with_counts()
+    lookup_url_kwarg = "id"
 
-    def patch(self, request, id):
-        return self.update(request, id, partial=True)
+    def get(self, request, *args, **kwargs):
+        return self.retrieve(request, *args, **kwargs)
 
-    def put(self, request, id):
-        return self.update(request, id, partial=False)
+    def put(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
 
-    def update(self, request, id, partial):
-        serializer = CategorySerializer(self.get_object(id), data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data)
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
 
-    def delete(self, request, id):
-        category = self.get_object(id)
-        if category.listings.exists():
-            return Response({"detail": "В категории есть объявления"}, status=status.HTTP_409_CONFLICT)
-        category.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def delete(self, request, *args, **kwargs):
+        return self.destroy(request, *args, **kwargs)
+
+    def perform_destroy(self, instance) -> None:
+        if instance.listings.exists():
+            raise CategoryNotEmpty
+        instance.delete()
 
 
+class CategoryList(ListModelMixin, CreateModelMixin, generics.GenericAPIView):
+    serializer_class = CategorySerializer
+    queryset = categories_with_counts()
 
-
-class CategoryList(APIView):
     def get_queryset(self):
-
-        categories = categories_with_counts()
+        categories = super().get_queryset()
         search = self.request.query_params.get("search", "").strip()
         if search:
             categories = categories.filter(name__icontains=search)
         return categories
 
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
 
-    def get(self, request):
-        serializer = CategorySerializer(self.get_queryset(), many=True)
-        return Response(serializer.data)
-
-    def post(self, request):
-        serializer = CategorySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def post(self, request, *args, **kwargs):
+        return self.create(request, *args, **kwargs)
 
 
+class CategoryListings(generics.GenericAPIView):
+    queryset = Listing.objects.select_related("seller", "category")
+    serializer_class = ListingCardSerializer
 
-
-
-class CategoryListings(APIView):
     def get_queryset(self):
-
         category = get_object_or_404(Category, id=self.kwargs['id'])
-        listings = category.listings.select_related("category", "seller")
+        listings = super().get_queryset().filter(category=category)
         listing_status = self.request.query_params.get("status", "").strip()
         if listing_status in Listing.Status.values:
             listings = listings.filter(status=listing_status)
@@ -79,7 +93,7 @@ class CategoryListings(APIView):
         return listings
 
     def get(self, request, id):
-        serializer = ListingCardSerializer(self.get_queryset(), many=True, context={"request": request})
+        serializer = self.get_serializer(self.get_queryset(), many=True)
         return Response(serializer.data)
 
 class ListingCreate(APIView):
@@ -90,5 +104,26 @@ class ListingCreate(APIView):
         serializer.is_valid(raise_exception=True)
         listing = serializer.save()
         return Response(ListingSerializer(listing).data, status=status.HTTP_201_CREATED)
+
+class ListingDetail(generics.GenericAPIView):
+    permission_classes = [IsSeller]
+    queryset = Listing.objects.select_related("seller", "category")
+    serializer_class = ListingSerializer
+    lookup_url_kwarg = "id"
+
+    def get(self, request, id):
+        return Response(self.get_serializer(self.get_object()).data)
+
+    def patch(self, request, id):
+        serializer = ListingWriteSerializer(self.get_object(), data=request.data, context=self.get_serializer_context(),
+                                            partial=True)
+        serializer.is_valid(raise_exception=True)
+        new_data = serializer.save()
+        return Response(self.get_serializer(new_data).data)
+
+
+
+
+
 
 
