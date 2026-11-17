@@ -70,12 +70,14 @@ class ListingWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Цена должна быть больше нуля!")
         return price
 
+
     def validate(self, attrs):
         status = attrs.get("status", getattr(self.instance, "status", Listing.Status.ACTIVE))
         description = attrs.get("description", getattr(self.instance, "description", ""))
         if status == Listing.Status.ACTIVE and len(description.strip()) < 20:
             raise serializers.ValidationError({'description': 'Если объявление активно, описание должно быть не меньше 20 символов'})
         return attrs
+
 
 
 
